@@ -13,3 +13,8 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+
+# Project ignore
+cmd/skritter/skritter
+cmd/skritter/*.txt
+cmd/skritter/*.log
