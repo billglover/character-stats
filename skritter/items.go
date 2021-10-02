@@ -5,55 +5,84 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strings"
 )
 
 func (c *Client) Items() error {
 
+	vocab := map[string]string{}
+	items := 0
+
 	path := c.BaseURL.String() + "/items"
+	cursor := ""
 
-	req, err := http.NewRequest(http.MethodPost, path, nil)
-	if err != nil {
-		return err
+	for {
+
+		req, err := http.NewRequest(http.MethodPost, path, nil)
+		if err != nil {
+			return err
+		}
+
+		q := req.URL.Query()
+		q.Add("include_vocabs", "true")
+		q.Add("include_heisigs", "true")
+		if cursor != "" {
+			q.Add("cursor", cursor)
+		}
+		req.URL.RawQuery = q.Encode()
+
+		req.Header.Add("Authorization", "Bearer "+c.token)
+		req.Method = http.MethodGet
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		bodyString := string(bodyBytes)
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("%s: %s", resp.Status, bodyString)
+		}
+
+		type Response struct {
+			Cursor     string  `json:"cursor"`
+			Items      []Item  `json:"Items"`
+			Vocabs     []Vocab `json:"Vocabs"`
+			StatusCode int     `json:"statusCode"`
+		}
+
+		var r Response
+		err = json.Unmarshal(bodyBytes, &r)
+		if err != nil {
+			return err
+		}
+
+		cursor = r.Cursor
+		items += len(r.Items)
+
+		for _, v := range r.Vocabs {
+			en := v.Definitions["en"]
+			vocab[v.Writing] = strings.ReplaceAll(en, "\n", "\\n")
+		}
+
+		if cursor == "" {
+			break
+		}
+
+		//time.Sleep(5 * time.Millisecond)
 	}
 
-	q := req.URL.Query()
-	q.Add("includ_vocabs", "true")
-	q.Add("include_heisigs", "true")
-	req.URL.RawQuery = q.Encode()
-
-	req.Header.Add("Authorization", "Bearer "+c.token)
-	req.Method = http.MethodGet
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
+	fmt.Println("Items retrieved:", items)
+	fmt.Println("Vocab retrieved:", len(vocab))
+	for zn, en := range vocab {
+		fmt.Println(zn, en)
 	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	bodyString := string(bodyBytes)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %s", resp.Status, bodyString)
-	}
-
-	type Response struct {
-		Cursor     string  `json:"cursor"`
-		Items      []Item  `json:"Items"`
-		Vocabs     []Vocab `json:"Vocabs"`
-		StatusCode int     `json:"statusCode"`
-	}
-
-	var r Response
-	err = json.Unmarshal(bodyBytes, &r)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Items retrieved:", len(r.Items))
 
 	return nil
 }
