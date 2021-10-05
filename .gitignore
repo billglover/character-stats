@@ -18,3 +18,7 @@
 cmd/skritter/skritter
 cmd/skritter/*.txt
 cmd/skritter/*.log
+data/
+
+# OS Files
+.DS_Store

@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"strings"
 )
 
-func (c *Client) Items() error {
+func (c *Client) Vocab() ([]Vocab, error) {
 
-	vocab := map[string]string{}
+	vocab := map[string]Vocab{}
 	items := 0
 
 	path := c.BaseURL.String() + "/items"
@@ -20,7 +19,7 @@ func (c *Client) Items() error {
 
 		req, err := http.NewRequest(http.MethodPost, path, nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		q := req.URL.Query()
@@ -36,18 +35,18 @@ func (c *Client) Items() error {
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer resp.Body.Close()
 
 		bodyBytes, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		bodyString := string(bodyBytes)
 
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("%s: %s", resp.Status, bodyString)
+			return nil, fmt.Errorf("%s: %s", resp.Status, bodyString)
 		}
 
 		type Response struct {
@@ -60,15 +59,14 @@ func (c *Client) Items() error {
 		var r Response
 		err = json.Unmarshal(bodyBytes, &r)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		cursor = r.Cursor
 		items += len(r.Items)
 
 		for _, v := range r.Vocabs {
-			en := v.Definitions["en"]
-			vocab[v.Writing] = strings.ReplaceAll(en, "\n", "\\n")
+			vocab[v.Writing] = v
 		}
 
 		if cursor == "" {
@@ -80,11 +78,14 @@ func (c *Client) Items() error {
 
 	fmt.Println("Items retrieved:", items)
 	fmt.Println("Vocab retrieved:", len(vocab))
-	for zn, en := range vocab {
-		fmt.Println(zn, en)
+	vs := make([]Vocab, len(vocab))
+	i := 0
+	for _, v := range vocab {
+		vs[i] = v
+		i++
 	}
 
-	return nil
+	return vs, nil
 }
 
 // Item is the atomic unit of learning in Skritter. It is used to track
@@ -122,14 +123,13 @@ type Vocab struct {
 	Toughness        int               `json:"toughness"`
 	DictionaryLinks  map[string]string `json:"dictionaryLinks"`
 	HeisigDefinition string            `json:"heisigDefinition"`
-	Created          int               `json:"created,omitempty"`
 	Ilk              string            `json:"ilk"`
 	Writing          string            `json:"writing"`
 	Audios           []Audio           `json:"audios"`
 	AudioURL         string            `json:"audioURL"`
 	ToughnessString  string            `json:"toughnessString"`
 	Definitions      map[string]string `json:"definitions"`
-	//	Starred          bool              `json:"starred"`
+	//Starred          bool              `json:"starred"` // Omitted as type varies between bool and int
 	Reading string `json:"reading"`
 	ID      string `json:"id"`
 }
