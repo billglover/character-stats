@@ -71,7 +71,7 @@ func run(log *log.Logger) error {
 	//=======
 	// Skritter
 	client := skritter.NewClient(token)
-	vs, err := client.Vocab()
+	vs, is, err := client.Vocab()
 	if err != nil {
 		return err
 	}
@@ -93,13 +93,32 @@ func run(log *log.Logger) error {
 		Created          time.Time `db:"created_at"`
 	}
 
-	ts := time.Now()
+	type Item struct {
+		ID               string    `db:"id"`
+		Lang             string    `db:"lang"`
+		Style            string    `db:"style"`
+		Changed          time.Time `db:"changed"`
+		Last             time.Time `db:"last"`
+		Created          time.Time `db:"created_at"`
+		Successes        int       `db:"successes"`
+		TimeStudied      int       `db:"time_studied"`
+		Interval         int       `db:"interval"`
+		Next             time.Time `db:"next"`
+		Reviews          int       `db:"reviews"`
+		PreviousInterval int       `db:"previous_interval"`
+		Part             string    `db:"part"`
+		VocabId          string    `db:"vocab_id"`
+		PreviousSuccess  bool      `db:"previous_success"`
+	}
 
+	ts := time.Now()
 	vocab := make([]Vocab, len(vs))
-	for i, v := range vs {
+	items := make([]Item, len(is))
+
+	for n, v := range vs {
 		en := v.Definitions["en"]
 
-		vocab[i] = Vocab{
+		vocab[n] = Vocab{
 			ID:               v.ID,
 			Lang:             v.Lang,
 			Priority:         v.Priority,
@@ -117,8 +136,29 @@ func run(log *log.Logger) error {
 		}
 	}
 
-	for v := range vocab {
-		fmt.Println(vocab[v])
+	for n, i := range is {
+		changed := time.Unix(int64(i.Changed), 0)
+		last := time.Unix(int64(i.Last), 0)
+		created := time.Unix(int64(i.Created), 0)
+		next := time.Unix(int64(i.Next), 0)
+
+		items[n] = Item{
+			ID:               i.ID,
+			Lang:             i.Lang,
+			Style:            i.Style,
+			Changed:          changed,
+			Last:             last,
+			Created:          created,
+			Successes:        i.Successes,
+			TimeStudied:      i.TimeStudied,
+			Interval:         i.Interval,
+			Next:             next,
+			Reviews:          i.Reviews,
+			PreviousInterval: i.PreviousInterval,
+			Part:             i.Part,
+			VocabId:          i.VocabIds[0],
+			PreviousSuccess:  i.PreviousSuccess,
+		}
 	}
 
 	res, err := db.NamedExec(`INSERT INTO vocab (id,lang,priority,style,audio_url,toughness,heisig_definition,ilk,writing,toughness_string,definition_en,starred,reading,created_at)
@@ -133,7 +173,32 @@ func run(log *log.Logger) error {
 		return err
 	}
 
-	fmt.Println("Inserted:", n)
+	fmt.Println("Inserted Vocab:", n)
+
+	var nt int64 = 0
+	batch := 100
+
+	for i := 0; i < len(items); i += batch {
+		j := i + batch
+		if j > len(items) {
+			j = len(items)
+		}
+		q := `REPLACE INTO items (id,lang,style,changed,last,successes,time_studied,interval,next,reviews,previous_interval,part,vocab_id,previous_success,created_at)
+	VALUES (:id, :lang, :style, :changed, :last, :successes, :time_studied, :interval, :next, :reviews, :previous_interval, :part, :vocab_id, :previous_success, :created_at);`
+
+		res, err = db.NamedExec(q, items[i:j])
+		if err != nil {
+			return err
+		}
+
+		n, err = res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		nt = nt + n
+	}
+
+	fmt.Println("Inserted Items:", nt)
 
 	return nil
 }
