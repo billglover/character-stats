@@ -7,10 +7,10 @@ import (
 	"net/http"
 )
 
-func (c *Client) Vocab() ([]Vocab, error) {
+func (c *Client) Vocab() ([]Vocab, []Item, error) {
 
 	vocab := map[string]Vocab{}
-	items := 0
+	items := map[string]Item{}
 
 	path := c.BaseURL.String() + "/items"
 	cursor := ""
@@ -19,7 +19,7 @@ func (c *Client) Vocab() ([]Vocab, error) {
 
 		req, err := http.NewRequest(http.MethodPost, path, nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		q := req.URL.Query()
@@ -35,18 +35,18 @@ func (c *Client) Vocab() ([]Vocab, error) {
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		defer resp.Body.Close()
 
 		bodyBytes, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		bodyString := string(bodyBytes)
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("%s: %s", resp.Status, bodyString)
+			return nil, nil, fmt.Errorf("%s: %s", resp.Status, bodyString)
 		}
 
 		type Response struct {
@@ -59,14 +59,17 @@ func (c *Client) Vocab() ([]Vocab, error) {
 		var r Response
 		err = json.Unmarshal(bodyBytes, &r)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		cursor = r.Cursor
-		items += len(r.Items)
+
+		for _, i := range r.Items {
+			items[i.ID] = i
+		}
 
 		for _, v := range r.Vocabs {
-			vocab[v.Writing] = v
+			vocab[v.ID] = v
 		}
 
 		if cursor == "" {
@@ -76,16 +79,23 @@ func (c *Client) Vocab() ([]Vocab, error) {
 		//time.Sleep(5 * time.Millisecond)
 	}
 
-	fmt.Println("Items retrieved:", items)
-	fmt.Println("Vocab retrieved:", len(vocab))
-	vs := make([]Vocab, len(vocab))
-	i := 0
-	for _, v := range vocab {
-		vs[i] = v
-		i++
+	fmt.Println("Items retrieved:", len(items))
+	is := make([]Item, len(items))
+	n := 0
+	for _, i := range items {
+		is[n] = i
+		n++
 	}
 
-	return vs, nil
+	fmt.Println("Vocab retrieved:", len(vocab))
+	vs := make([]Vocab, len(vocab))
+	n = 0
+	for _, v := range vocab {
+		vs[n] = v
+		n++
+	}
+
+	return vs, is, nil
 }
 
 // Item is the atomic unit of learning in Skritter. It is used to track
