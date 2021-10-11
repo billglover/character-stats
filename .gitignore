@@ -15,10 +15,11 @@
 # vendor/
 
 # Project ignore
-cmd/skritter/skritter
+cmd/cmd
 cmd/skritter/*.txt
 cmd/skritter/*.log
 data/
+skritter.db
 
 # OS Files
 .DS_Store

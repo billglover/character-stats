@@ -1,50 +1,59 @@
-package main
+package cli
 
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
-	"log"
-	"os"
 	"time"
 
 	"github.com/billglover/character-stats/database"
 	"github.com/billglover/character-stats/skritter"
+	"github.com/spf13/cobra"
 )
 
-func main() {
+func init() {
+	rootCmd.AddCommand(syncCmd)
+	syncCmd.Flags().String("token", "", "Skritter API token")
+	syncCmd.MarkFlagRequired("token")
 
-	log := log.New(os.Stdout, "api : ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+	syncCmd.Flags().String("db", "skritter.db", "Path to the local database")
 
-	err := run(log)
-	if err != nil {
-		log.Println("main: error:", err)
-		os.Exit(1)
-	}
+	syncCmd.Flags().Bool("full", false, "perform a full database sync")
+
 }
 
-func run(log *log.Logger) error {
+var syncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Sync local database with Skirtter",
+	Long:  `Pull the latest data from Skritter and persist in a local database.`,
+	RunE:  sync,
+}
 
-	var token string
-	flag.StringVar(&token, "token", "", "Skritter API token")
+func sync(cmd *cobra.Command, args []string) error {
 
-	var dbFile string
-	flag.StringVar(&dbFile, "db", "skritter.db", "path to the SQLite DB")
-
-	flag.Parse()
-
-	if token == "" {
-		return errors.New("must provide -token")
+	full, err := cmd.Flags().GetBool("full")
+	if err != nil {
+		return err
 	}
 
-	if dbFile == "" {
-		return errors.New("must specify the location of the db with -db")
+	if !full {
+		return errors.New("partial sync not implemented please use --full")
+	}
+
+	//==========
+	// Config
+	token, err := cmd.Flags().GetString("token")
+	if err != nil {
+		return err
+	}
+
+	dbFile, err := cmd.Flags().GetString("db")
+	if err != nil {
+		return err
 	}
 
 	//==========
 	// Database
-	log.Println("begin connecting to database")
 	db, err := database.Open(database.Config{
 		DSN: dbFile,
 	})
@@ -52,7 +61,6 @@ func run(log *log.Logger) error {
 		return fmt.Errorf("connecting to db: %w", err)
 	}
 	defer func() {
-		log.Println("stopping database support")
 		db.Close()
 	}()
 
@@ -61,12 +69,10 @@ func run(log *log.Logger) error {
 		return fmt.Errorf("connecting to db: %w", err)
 	}
 
-	log.Println("starting database migrations")
 	err = database.Migrate(context.TODO(), db)
 	if err != nil {
 		return fmt.Errorf("migrating db: %w", err)
 	}
-	log.Println("completed database migrations")
 
 	//=======
 	// Skritter
@@ -76,49 +82,14 @@ func run(log *log.Logger) error {
 		return err
 	}
 
-	type Vocab struct {
-		ID               string    `db:"id"`
-		Lang             string    `db:"lang"`
-		Priority         int       `db:"priority"`
-		Style            string    `db:"style"`
-		Audio            string    `db:"audio_url"`
-		Toughness        int       `db:"toughness"`
-		HeisigDefinition string    `db:"heisig_definition"`
-		Ilk              string    `db:"ilk"`
-		Writing          string    `db:"writing"`
-		ToughnessString  string    `db:"toughness_string"`
-		Definition       string    `db:"definition_en"`
-		Starred          bool      `db:"starred"`
-		Reading          string    `db:"reading"`
-		Created          time.Time `db:"created_at"`
-	}
-
-	type Item struct {
-		ID               string    `db:"id"`
-		Lang             string    `db:"lang"`
-		Style            string    `db:"style"`
-		Changed          time.Time `db:"changed"`
-		Last             time.Time `db:"last"`
-		Created          time.Time `db:"created_at"`
-		Successes        int       `db:"successes"`
-		TimeStudied      int       `db:"time_studied"`
-		Interval         int       `db:"interval"`
-		Next             time.Time `db:"next"`
-		Reviews          int       `db:"reviews"`
-		PreviousInterval int       `db:"previous_interval"`
-		Part             string    `db:"part"`
-		VocabId          string    `db:"vocab_id"`
-		PreviousSuccess  bool      `db:"previous_success"`
-	}
-
 	ts := time.Now()
-	vocab := make([]Vocab, len(vs))
-	items := make([]Item, len(is))
+	vocab := make([]database.Vocab, len(vs))
+	items := make([]database.Item, len(is))
 
 	for n, v := range vs {
 		en := v.Definitions["en"]
 
-		vocab[n] = Vocab{
+		vocab[n] = database.Vocab{
 			ID:               v.ID,
 			Lang:             v.Lang,
 			Priority:         v.Priority,
@@ -142,7 +113,7 @@ func run(log *log.Logger) error {
 		created := time.Unix(int64(i.Created), 0)
 		next := time.Unix(int64(i.Next), 0)
 
-		items[n] = Item{
+		items[n] = database.Item{
 			ID:               i.ID,
 			Lang:             i.Lang,
 			Style:            i.Style,
