@@ -79,7 +79,6 @@ func (c *Client) Vocab() ([]Vocab, []Item, error) {
 		//time.Sleep(5 * time.Millisecond)
 	}
 
-	fmt.Println("Items retrieved:", len(items))
 	is := make([]Item, len(items))
 	n := 0
 	for _, i := range items {
@@ -87,7 +86,6 @@ func (c *Client) Vocab() ([]Vocab, []Item, error) {
 		n++
 	}
 
-	fmt.Println("Vocab retrieved:", len(vocab))
 	vs := make([]Vocab, len(vocab))
 	n = 0
 	for _, v := range vocab {
