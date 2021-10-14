@@ -2,9 +2,9 @@ package database
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log"
-	"strings"
+	"reflect"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -62,28 +62,27 @@ func NamedExecContext(ctx context.Context, log *log.Logger, db *sqlx.DB, query s
 	return nil
 }
 
-// queryString provides a pretty print version of the query and parameters.
-func QueryString(query string, args ...interface{}) string {
-	query, params, err := sqlx.Named(query, args)
+// NamedQuerySlice is a helper function for executing queries that return a
+// collection of data to be unmarshaled into a slice.
+func NamedQuerySlice(ctx context.Context, db sqlx.ExtContext, query string, data interface{}, dest interface{}) error {
+	val := reflect.ValueOf(dest)
+	if val.Kind() != reflect.Ptr || val.Elem().Kind() != reflect.Slice {
+		return errors.New("must provide a pointer to a slice")
+	}
+
+	rows, err := sqlx.NamedQueryContext(ctx, db, query, data)
 	if err != nil {
-		return err.Error()
+		return err
 	}
 
-	for _, param := range params {
-		var value string
-		switch v := param.(type) {
-		case string:
-			value = fmt.Sprintf("%q", v)
-		case []byte:
-			value = fmt.Sprintf("%q", string(v))
-		default:
-			value = fmt.Sprintf("%v", v)
+	slice := val.Elem()
+	for rows.Next() {
+		v := reflect.New(slice.Type().Elem())
+		if err := rows.StructScan(v.Interface()); err != nil {
+			return err
 		}
-		query = strings.Replace(query, "?", value, 1)
+		slice.Set(reflect.Append(slice, v.Elem()))
 	}
 
-	query = strings.Replace(query, "\t", "", -1)
-	query = strings.Replace(query, "\n", " ", -1)
-
-	return strings.Trim(query, " ")
+	return nil
 }
