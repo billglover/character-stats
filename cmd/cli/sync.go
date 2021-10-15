@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -34,10 +33,6 @@ func sync(cmd *cobra.Command, args []string) error {
 	full, err := cmd.Flags().GetBool("full")
 	if err != nil {
 		return err
-	}
-
-	if !full {
-		return errors.New("partial sync not implemented please use --full")
 	}
 
 	//==========
@@ -77,7 +72,23 @@ func sync(cmd *cobra.Command, args []string) error {
 	//=======
 	// Skritter
 	client := skritter.NewClient(token)
-	vs, is, err := client.Vocab()
+
+	var since *time.Time
+
+	if !full {
+		result := struct {
+			Changed time.Time `db:"changed"`
+		}{}
+
+		err := db.Get(&result, "SELECT changed FROM items ORDER BY changed DESC LIMIT 1;")
+		if err != nil {
+			return err
+		}
+
+		since = &result.Changed
+	}
+
+	vs, is, err := client.Vocab(since)
 	if err != nil {
 		return err
 	}
@@ -132,44 +143,48 @@ func sync(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	res, err := db.NamedExec(`INSERT INTO vocab (id,lang,priority,style,audio_url,toughness,heisig_definition,ilk,writing,toughness_string,definition_en,starred,reading,created_at)
+	if len(vocab) != 0 {
+		res, err := db.NamedExec(`INSERT INTO vocab (id,lang,priority,style,audio_url,toughness,heisig_definition,ilk,writing,toughness_string,definition_en,starred,reading,created_at)
         VALUES (:id, :lang, :priority, :style, :audio_url, :toughness, :heisig_definition, :ilk, :writing, :toughness_string, :definition_en, :starred, :reading, :created_at)
 		ON CONFLICT(id) DO UPDATE SET created_at=excluded.created_at;`, vocab)
-	if err != nil {
-		return err
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Inserted Vocab:", n)
-
-	var nt int64 = 0
-	batch := 100
-
-	for i := 0; i < len(items); i += batch {
-		j := i + batch
-		if j > len(items) {
-			j = len(items)
+		if err != nil {
+			return err
 		}
-		q := `REPLACE INTO items (id,lang,style,changed,last,successes,time_studied,interval,next,reviews,previous_interval,part,vocab_id,previous_success,created_at)
+
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Inserted Vocab:", n)
+	}
+
+	if len(items) != 0 {
+		var nt int64 = 0
+		batch := 100
+
+		for i := 0; i < len(items); i += batch {
+			j := i + batch
+			if j > len(items) {
+				j = len(items)
+			}
+			q := `REPLACE INTO items (id,lang,style,changed,last,successes,time_studied,interval,next,reviews,previous_interval,part,vocab_id,previous_success,created_at)
 	VALUES (:id, :lang, :style, :changed, :last, :successes, :time_studied, :interval, :next, :reviews, :previous_interval, :part, :vocab_id, :previous_success, :created_at);`
 
-		res, err = db.NamedExec(q, items[i:j])
-		if err != nil {
-			return err
+			res, err := db.NamedExec(q, items[i:j])
+			if err != nil {
+				return err
+			}
+
+			n, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			nt = nt + n
 		}
 
-		n, err = res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		nt = nt + n
+		fmt.Println("Inserted Items:", nt)
 	}
-
-	fmt.Println("Inserted Items:", nt)
 
 	return nil
 }

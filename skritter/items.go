@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
+	"time"
 )
 
-func (c *Client) Vocab() ([]Vocab, []Item, error) {
+func (c *Client) Vocab(since *time.Time) ([]Vocab, []Item, error) {
 
 	vocab := map[string]Vocab{}
 	items := map[string]Item{}
@@ -25,6 +27,15 @@ func (c *Client) Vocab() ([]Vocab, []Item, error) {
 		q := req.URL.Query()
 		q.Add("include_vocabs", "true")
 		q.Add("include_heisigs", "true")
+		q.Add("sort", "changed")
+
+		if since != nil {
+			// We add one to the latest sync timestamp to avoid retrieving the last item again
+			// This feels like a hack and could probably be removed without impact as there is no harm
+			// in overwriting the local database entry.
+			q.Add("offset", strconv.Itoa(int(since.Unix()+1)))
+		}
+
 		if cursor != "" {
 			q.Add("cursor", cursor)
 		}
